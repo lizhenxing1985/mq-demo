@@ -1,0 +1,83 @@
+第一台Linux:
+1. Dubbo注册中心Zookeeper启动：
+   
+   /usr/local/dubbo-zookeeper/bin/zkServer.sh start 启动
+   /usr/local/dubbo-zookeeper/bin/zkServer.sh restart 重启
+   /usr/local/dubbo-zookeeper/bin/zkServer.sh status 状态
+
+   
+   ps -ef | grep zookeeper : 查看zookeeper的进程号
+   kill -9 进程号
+
+   service iptables stop 
+   chkconfig iptables off 
+
+2. Dubbo监控中心启动：
+   /usr/local/web/tomcat-dubbo-monitor/bin/startup.sh
+
+
+3. FastDFS相关：
+   a. tracker追踪服务器启动(开机自动启动)
+      /usr/bin/fdfs_trackerd /etc/fdfs/tracker.conf restart
+    
+   b. storage存储服务器启动(开机自动启动)
+      /usr/bin/fdfs_storaged /etc/fdfs/storage.conf restart
+
+   c. nginx启动(开机自动启动)
+      /usr/local/nginx/sbin/nginx 
+
+
+      查看进程：
+      ps -ef | grep fdfs
+      ps -ef | grep nginx
+
+4. Redis相关：
+   
+   a. Redis单机版启动：
+      cd /usr/local/redis/bin && ./redis-server redis.conf
+
+   b. Redis集群版启动：
+      cd /usr/local/redis/redis-cluster && ./start-all.sh
+
+
+
+5. Solr相关：
+   
+   a. 三台zookeeper集群启动：
+      /usr/local/solr/solr-cloud/zookeeper01/bin/zkServer.sh start
+      /usr/local/solr/solr-cloud/zookeeper02/bin/zkServer.sh start
+      /usr/local/solr/solr-cloud/zookeeper03/bin/zkServer.sh start
+
+      /usr/local/solr/solr-cloud/zookeeper01/bin/zkServer.sh status
+      /usr/local/solr/solr-cloud/zookeeper02/bin/zkServer.sh status
+      /usr/local/solr/solr-cloud/zookeeper03/bin/zkServer.sh status
+
+   
+   b. 四台tomcat启动(solr集群)：
+      /usr/local/solr/solr-cloud/tomcat-solr01/bin/startup.sh 
+      /usr/local/solr/solr-cloud/tomcat-solr02/bin/startup.sh 
+      /usr/local/solr/solr-cloud/tomcat-solr03/bin/startup.sh 
+      /usr/local/solr/solr-cloud/tomcat-solr04/bin/startup.sh 
+      
+
+      ps -ef | grep tomcat
+
+
+6. ActiveMQ相关：
+    /usr/local/apache-activemq-5.14.5/bin/linux-x86-32/activemq start
+
+     ps -ef | grep activemq
+
+   # 动态查看tomcat启动日志
+   tail -f /usr/local/solr/tomcat/logs/catalina.out
+
+
+
+注意：关闭防火墙
+   a. 即时生效，重启系统后失效 
+      开启： service iptables start 
+      关闭： service iptables stop 
+
+   b.重启系统后生效 
+      开启： chkconfig iptables on 
+      关闭： chkconfig iptables off 

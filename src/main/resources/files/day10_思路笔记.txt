@@ -1,0 +1,397 @@
+一、商品数据导入
+    -- 将“资料\sql”的数据库文件导入到淘淘商城数据库中
+    
+    商品图片：
+    http://image.taotao.com/jd/759708c7e07b4adeaa4f0fdd32546cec.jpg
+
+    用Nginx搭建静态资源服务器，减轻tomcat的压力:
+    -- 项目中所有的css、images、js
+    
+    server {
+        listen       80;
+        server_name  image.taotao.com;
+
+	proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        location / {
+	     root F:/taotao;
+        } 
+    }
+
+    把数据库表中的商品数据导入到索引库.
+    -- 使用java代码将后台管理系统中的商品读取到
+    然后再使用solrj把数据插入到solr索引库中。
+
+
+二、实现商品搜索
+    taotao-portal 请求 taotao-search-web系统
+    请求地址：http://search.taotao.com/search?q=iphone
+
+    search.jsp:
+    -- ${query} : 查询关键字
+    -- ${itemList}: List<SolrItem> 商品搜索的数据
+       <c:forEach items="${itemList}" var="item">
+
+       ${item.images[0]}:
+       SolrItem:
+          public String[] getImages() {
+		if (StringUtils.isNotBlank(this.image)){
+			return image.split(",");
+		}
+		return null;
+	  }
+
+   -- 分页需要的数据：
+      ${page} : 当前页码
+      ${totalPage}: 总页数
+
+三、解决SSO单点登录重定向URL问题:
+    -- taotao-search-web: shortcut.jsp
+
+    /** 获取当前页面请求的URL */
+    var redirectURL = window.encodeURIComponent(location.href);
+    /** 为登录按a标签设置href属性 */
+    $("#loginBtn").attr("href", "http://sso.taotao.com/login?redirectURL=" + redirectURL);
+
+    /** 获取当前页面请求的URL */
+    var redirectURL = window.encodeURIComponent(location.href);
+    var html = data.username + "，欢迎来到淘淘！<a href=\"http://sso.taotao.com/user/logout?redirectURL="+ redirectURL +"\" class=\"link-logout\">[退出]</a>";
+    $("#loginbar").html(html);
+
+
+三、数据同步问题
+    后台管理实现商品的MySQL数据管理；
+    搜索系统实现商品的solr索引库管理
+
+    问题：
+      后台管理系统增加、更新、删除商品数据的时候，索引库没有同步执行
+    
+
+    吞: 高并发 1毫秒1000
+
+    吐: 每秒处理的请求数(200-500)
+
+    一台tomcat的并发数: 1-2048 1个进程只能创建2048条线程
+
+四、ActiveMQ介绍
+
+    MQ: 思想
+      MQ全称为Message Queue，消息队列是应用程序和应用程序之间的通信方法。
+      常见MQ框架：Kafka、RabbitMQ、ActiveMQ、RocketMQ。
+
+    为什么使用MQ:
+       在项目中，将一些无需即时返回且耗时的操作提取出来，
+       进行了异步处理，而这种异步处理的方式大大的节省了
+       服务器的请求响应时间，从而提高了系统的吞吐量。
+
+
+    JMS: 规范
+      JMS(Java Message Service)Java消息服务；
+      是SUN提出的旨在统一各种MOM（Message-Oriented Middleware ）
+      面向消息中间件，系统接口的规范，
+      它包含点对点（Point to Point，PTP）
+      和发布/订阅（Publish/Subscribe，pub/sub）两种消息模型，
+      提供可靠消息传输、事务和消息过滤等机制。
+      简单的说，JMS制定了一个发消息的规范。是一个与具体平台无关的API，
+      绝大多数MOM提供商都对JMS提供支持。
+
+      JMS应用程序结构支持两种模型:
+      -- 点对点（Point to Point，PTP）
+      -- 发布/订阅（Publish/Subscribe，pub/sub）
+
+
+    ActiveMQ: 具体实现框架.
+      ActiveMQ是Apache出品，最流行的，
+      能力强劲的开源消息总线，它也是JMS规范的一个实现.
+
+     1. 官方网站 http://activemq.apache.org/
+
+        下载地址：http://archive.apache.org/dist/activemq/
+
+	apache-activemq-5.14.5-bin.zip (windows版本)
+	apache-activemq-5.14.5-bin.tar.gz (linux版本)
+
+
+    2. 安装：
+       -- Linux安装ActiveMQ.docx
+
+       说明：ActiveMQ中间件，采用jetty作为内嵌Web服务器，
+       它实际上也是一个Web应用。
+
+      备注：
+	 1. 修改端口号：apache-activemq-5.14.5\conf\jetty.xml 
+	       <property name="port" value="8161"/>  110行
+
+	 2. 修改用户名与密码：apache-activemq-5.14.5\conf\users.properties 
+
+	 3. 修改连接端口：apache-activemq-5.14.5\conf\activemq.xml 
+                  tcp://0.0.0.0:61616   113行
+
+    3. 核心api:
+
+       jms规范(接口):
+       -- ConnectionFactory 消息连接工厂
+       -- Connection 连接
+       -- Session 会话
+       -- Destination 目标
+       -- MessageProducer 消息生产者
+       -- MessageConsumer 消息消费者
+       -- Message 消息体:
+           TextMessage 文本消息体
+	   MapMessage Map集合消息体
+	   BytesMessage 字节消息体
+	   ObjectMessage 对象消息体
+	   StreamMessage 流消息体
+
+     activemq(实现):
+      -- ActiveMQConnectionFactory(ConnectionFactory 连接工厂接口实现类)
+      -- Message 消息接口实现类
+           ActiveMQTextMessage 文本消息体
+	   ActiveMQMapMessage Map集合消息体
+	   ActiveMQBytesMessage 字节消息体
+	   ActiveMQObjectMessage 对象消息体
+	   ActiveMQStreamMessage 流消息体
+          
+
+五、ActiveMQ使用
+
+    1. 点对点PTP(queue队列)一对一:
+        一个消息生产者对应一个消息消费者.
+
+        a. 开发消息生产者(Producer)：
+	   配置依赖jar包：activemq-all-5.14.5.jar
+	        <!-- 配置activemq -->
+		<dependency>
+		    <groupId>org.apache.activemq</groupId>
+		    <artifactId>activemq-all</artifactId>
+		    <version>5.14.5</version>
+                </dependency>
+	   开发步骤：
+	    1. 创建ConnectionFactory连接工厂
+	    2. 通过连接工厂创建连接Connection
+	    3. 通过连接的start方法开启连接
+	    4. 通过连接对象创建Session会话对象
+	    5. 通过session创建队列Queue，（可以设置queue（点对点）和topic（订阅）)
+	    6. 通过session创建MessageProducer消息的生产者
+	    7. 创建消息对象TextMessage并设置消息文本
+	    8. 通过MessageProducer消息生产者发送消息
+	    9. 关闭Producer、session、connection
+
+
+	b. 开发消息消费者(Consumer):
+	   配置依赖jar包：activemq-all-5.14.5.jar
+	        <!-- 配置activemq -->
+		<dependency>
+		    <groupId>org.apache.activemq</groupId>
+		    <artifactId>activemq-all</artifactId>
+		    <version>5.14.5</version>
+                </dependency>
+	   开发步骤：
+	    1. 创建ConnectionFactory连接工厂
+	    2. 通过连接工厂创建连接Connection
+	    3. 通过连接的start方法开启连接
+	    4. 通过连接对象创建Session会话对象
+	    5. 通过session创建队列Queue，（可以设置queue（点对点）
+
+	    6. 通过session创建MessageConsumer消息的消费者
+	    7. 通过MessageConsumer消息消费者对象循环接收消息
+            8. 输出结果
+            9. 关闭session、连接
+
+	    接收消息的两种方式：
+	    a. 循环接收消息
+	    b. 设置消息监听器
+
+
+
+    2. 发布/订阅pub/sub(topic主题)一对多:
+        一个消息生产者对应多个消息消费者.
+	a. 开发消息生产者(Producer)：
+	   配置依赖jar包：activemq-all-5.14.5.jar
+	        <!-- 配置activemq -->
+		<dependency>
+		    <groupId>org.apache.activemq</groupId>
+		    <artifactId>activemq-all</artifactId>
+		    <version>5.14.5</version>
+                </dependency>
+	   开发步骤：
+	    1. 创建ConnectionFactory连接工厂
+	    2. 通过连接工厂创建连接Connection
+	    3. 通过连接的start方法开启连接
+	    4. 通过连接对象创建Session会话对象
+	    5. 通过session创建主题Topic (发布与订阅)
+	    6. 通过session创建MessageProducer消息的生产者
+	    7. 创建消息对象TextMessage并设置消息文本
+	    8. 通过MessageProducer消息生产者发送消息
+	    9. 关闭Producer、session、connection
+
+
+	b. 开发消息消费者(Consumer):
+	   配置依赖jar包：activemq-all-5.14.5.jar
+	        <!-- 配置activemq -->
+		<dependency>
+		    <groupId>org.apache.activemq</groupId>
+		    <artifactId>activemq-all</artifactId>
+		    <version>5.14.5</version>
+                </dependency>
+	   开发步骤：
+	    1. 创建ConnectionFactory连接工厂
+	    2. 通过连接工厂创建连接Connection
+	    3. 通过连接的start方法开启连接
+	    4. 通过连接对象创建Session会话对象
+	    5. 通过session创建主题Topic (发布与订阅)
+	       /** 
+		 * 定义消息的目标(消息模式) 发布与订阅
+		 * topicName: 主题的名称
+		 * */
+		Destination destination = session.createTopic("test-topic");
+
+	    6. 通过session创建MessageConsumer消息的消费者
+	    7. 通过MessageConsumer消息消费者对象循环接收消息
+            8. 输出结果
+            9. 关闭session、连接
+
+	    接收消息的两种方式：
+	    a. 循环接收消息
+	    b. 设置消息监听器
+
+    3. 消息事务：
+       -- 如何保证消费者一定可以消费该消息。(必须开启消息事务).
+
+	消息生产者加事务：
+	 Session session = connection.createSession(true,
+	      Session.SESSION_TRANSACTED);
+
+	 session.commit();
+	 session.rollback();
+
+
+	消息消费者加事务：
+	  Session session = connection.createSession(true,
+	      Session.SESSION_TRANSACTED);
+          
+	  session.commit();
+	  session.rollback();
+
+
+	  注意：用了消息事务时，当处理消息失败，
+	    maximumRedeliveries默认最大重发6次，
+	    并把消息存放ActiveMQ.DLQ队列中，
+	    DLQ死信队列(Dead Letter Queue)用来保存处理失败消息
+
+	  /** 创建JMS连接工厂 */
+	  ActiveMQConnectionFactory connectionFactory = 
+	     new ActiveMQConnectionFactory(brokerURL);
+	  /** 创建重发送策略 */
+	  RedeliveryPolicy redeliveryPolicy = new RedeliveryPolicy();
+	  /** 设置最大重发送次数为3 */
+	  redeliveryPolicy.setMaximumRedeliveries(3);
+	  /** 设置重发送策略 */
+	  connectionFactory.setRedeliveryPolicy(redeliveryPolicy);
+
+    
+    4. activemq整合spring:
+       整合步骤：
+       a. 配置依赖jar:
+          <!-- 配置activemq -->
+	 <dependency>
+	    <groupId>org.apache.activemq</groupId>
+	    <artifactId>activemq-all</artifactId>
+	    <version>5.14.5</version>
+         </dependency>
+         <!-- spring-jms -->
+         <dependency>
+        	<groupId>org.springframework</groupId>
+        	<artifactId>spring-jms</artifactId>
+        	<version>4.3.3.RELEASE</version>
+         </dependency>
+
+      b. applicationContext-activemq.xml:
+         --引入jms命名空间：
+	   xmlns:jms="http://www.springframework.org/schema/jms"
+	   http://www.springframework.org/schema/jms
+      	   http://www.springframework.org/schema/jms/spring-jms.xsd
+
+	 -- 配置部分： 
+
+	    <!-- ########## ActiveMQ通用的配置 ########## -->
+	     <!-- 配置消息中间件的连接工厂 -->
+	     <bean id="activeMQConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+		<!-- 定义消息中间的服务地址brokerURL -->
+		<constructor-arg value="tcp://192.168.12.128:61616"/>
+	     </bean>
+	     <!-- 把ActiveMQ的连接工厂交由Spring的JMS管 理 -->
+	     <bean id="connectionFactory" class="org.springframework.jms.connection.SingleConnectionFactory">
+		<!-- 设置目标连接工厂 -->
+		<property name="targetConnectionFactory" ref="activeMQConnectionFactory"/>
+	     </bean>
+     
+     
+	     <!-- ################# 配置消息生产者 ################## -->
+	     <!-- 配置jmsTemplate来发送消息 -->
+	     <bean id="jmsTemplate" class="org.springframework.jms.core.JmsTemplate">
+		 <!-- 设置连接工厂 -->
+		 <property name="connectionFactory" ref="connectionFactory"/>
+		 <!-- 设置消息模式 -->
+		 <property name="defaultDestination" ref="queue"/>
+		 <!-- 设置开启消息事务 -->
+		 <property name="sessionTransacted" value="true"/>
+	     </bean>
+	     <!-- 配置点对点的消息模式 -->
+	     <bean id="queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<!-- 设置队列名称 -->
+		<constructor-arg value="spring-queue"/>
+	     </bean>
+	     
+     
+	     <!-- ################# 配置消息消费者 ################## -->
+	     <!-- 配置消息监听器容器 
+		connection-factory: 消息中间件的连接工厂
+		destination-type: 消息模式的类型：queue|topic
+		acknowledge: 应答方式，主要指定事务
+	     -->
+	     <jms:listener-container connection-factory="connectionFactory"
+						     destination-type="queue"
+						     acknowledge="transacted">
+		<!-- 配置消息监听器 
+			destination: 指定队列名称
+		-->
+		<jms:listener destination="spring-queue" ref="myMessageListener"/>
+	     </jms:listener-container>
+	     <!-- 配置自定义的消息监听器 -->
+	     <bean id="myMessageListener" class="cn.itcast.activemq.spring.MyMessageListener"/>
+
+
+      
+
+	   自定义的消息监听器:
+	   -- 需实现SessionAwareMessageListener接口(有消息事务)
+           -- 需实现MessageListener接口(无消息事务)
+
+
+    5. 开启多线程并发消费:
+       -- 当消息队列中的消息很多时，可以开启并发消费。
+       <!-- 配置消息监听器容器 
+     	 connection-factory: 消息中间件的连接工厂
+     	 destination-type: 消息模式的类型：queue|topic
+     	 acknowledge: 应答方式，主要指定事务
+     	 concurrency="100-1000" min-max
+       -->
+       <jms:listener-container connection-factory="connectionFactory"
+			     destination-type="queue"
+			     acknowledge="transacted"
+			     concurrency="1">
+
+    6.Queue与pub/sub区别
+       点对点PTP(queue队列): 
+       a. 一个消息的生产者只能对应一个消息的消费者(一对一)
+       b. 消费者一定可以消费该消息(在线或不在线都可以)，
+          只要有一个消费者消费了该消息就会从消息队列中删除.
+
+       发布/订阅pub/sub:
+       a. 一个消息的生产者能对应多个消息的消费者(一对多)
+       b. 只针对目前在线的所有消费者.(不在线的消费者不能消费该消息)
+
+
